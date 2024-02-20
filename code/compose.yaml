@@ -1,0 +1,129 @@
+services:
+  fastapi:
+    image: fastapi
+    build:
+      context: ./app
+    container_name: fastapi-application
+    ports:
+      - '80:80'
+    restart: 'no'
+    volumes:
+      - fastapi:/code/uploads/
+      - ./app:/code/app
+    depends_on:
+      - roach1
+
+# version control for nifi flows
+  registry:
+    user: root
+    container_name: nifi-registry
+    image: 'apache/nifi-registry:latest'  
+    restart: on-failure
+    cpus: 0.5
+    mem_limit: 0.5G
+    mem_reservation: 0.5G
+    ports:
+      - "18080:18080"  
+    environment:
+      - LOG_LEVEL=INFO
+      - NIFI_REGISTRY_DB_DIR=/opt/nifi-registry/nifi-registry-current/database
+      - NIFI_REGISTRY_FLOW_PROVIDER=file
+      - NIFI_REGISTRY_FLOW_STORAGE_DIR=/opt/nifi-registry/nifi-registry-current/flow_storage
+    volumes:
+      - ./nifi_registry/database:/opt/nifi-registry/nifi-registry-current/database
+      - ./nifi_registry/flow_storage:/opt/nifi-registry/nifi-registry-current/flow_storage
+# data extraction, transformation and load service
+  nifi:
+    container_name: nifi
+    image: 'apache/nifi:latest'  
+    restart: on-failure
+    user: root
+    ports:
+        - '8443:8443'
+    cpus: 0.5
+    mem_limit: 1G
+    mem_reservation: 1G
+    environment:
+      - SINGLE_USER_CREDENTIALS_USERNAME=admin
+      - SINGLE_USER_CREDENTIALS_PASSWORD=123456789012345
+      - NIFI_SENSITIVE_PROPS_KEY='12345678901234567890A'
+    volumes:
+      - fastapi:/tmp/input/
+      - nifi_database_repository:/opt/nifi/nifi-current/database_repository
+      - nifi_flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+      - nifi_content_repository:/opt/nifi/nifi-current/content_repository
+      - nifi_provenance_repository:/opt/nifi/nifi-current/provenance_repository
+      - nifi_state:/opt/nifi/nifi-current/state
+      - nifi_logs:/opt/nifi/nifi-current/logs
+      - nifi_data:/opt/nifi/nifi-current/data
+      - nifi_conf:/opt/nifi/nifi-current/conf
+      - type: bind
+        source: ./nifi/lib
+        target: /opt/nifi/nifi-current/lib
+
+  roach1:
+    container_name: roach1
+    hostname: roach1
+    image: cockroachdb/cockroach:latest
+    cpus: 0.5
+    ports:
+      - "8080:8080"
+      - "26257:26257"
+    command: start --logtostderr=WARNING --insecure --listen-addr=roach1:26357 --advertise-addr=roach1:26357 --http-addr=roach1:8080 --sql-addr=roach1:26257 --join=roach1:26357 #,roach2:26357,roach3:26357
+    volumes:
+      - roach1:/cockroach/sql
+
+
+  roach2:
+    container_name: roach2
+    hostname: roach2
+    image: cockroachdb/cockroach:latest
+    cpus: 0.5
+    ports:
+      - "8081:8081"
+      - "26258:26258"
+    command: start --logtostderr=WARNING --insecure --listen-addr=roach2:26357 --advertise-addr=roach2:26357 --http-addr=roach2:8081 --sql-addr=roach2:26258 --join=roach1:26357,roach2:26357,roach3:26357
+    volumes:
+      - roach2:/cockroach/sql
+    depends_on:
+      - roach1
+
+  # roach3:
+  #   container_name: roach3
+  #   hostname: roach3
+  #   image: cockroachdb/cockroach:latest
+  #   ports:
+  #     - "8082:8082"
+  #     - "26259:26259"
+  #   command: start --logtostderr=WARNING --insecure --listen-addr=roach3:26357 --advertise-addr=roach3:26357 --http-addr=roach3:8082 --sql-addr=roach3:26259 --join=roach1:26357,roach2:26357,roach3:26357
+  #   volumes:
+  #     - roach3:/cockroach/sql
+  #   depends_on:
+  #     - roach1
+  #     - roach2
+
+volumes:
+  fastapi:
+    driver: local
+  nifi_database_repository:
+    driver: local
+  nifi_flowfile_repository:
+    driver: local
+  nifi_content_repository:
+    driver: local
+  nifi_provenance_repository:
+    driver: local
+  nifi_state:
+    driver: local
+  nifi_logs:
+    driver: local
+  nifi_data:
+    driver: local
+  nifi_conf:
+    driver: local
+  roach1:
+    driver: local
+  roach2:
+    driver: local
+  roach3:
+    driver: local
